@@ -13,6 +13,8 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.loopj.android.http.AsyncHttpResponseHandler
 import com.loopj.android.http.SyncHttpClient
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import cz.msebera.android.httpclient.Header
 import org.json.JSONObject
 import java.lang.Exception
@@ -38,6 +40,8 @@ class MyWorker(context: Context, workerParams: WorkerParameters) : Worker(contex
     private fun getCurrentWeather(city: String?): Result {
         Log.d("Debug", "getCurrentWeather : Mulai....")
         Looper.prepare()
+        // Khusus di WorkManager Anda perlu menjalankan proses secara synchronous supaya bisa mendapatkan result success.
+        // Selain itu WorkManager sudah berjalan di background thread, jadi aman saja menjalankan secara langsung.
         val client = SyncHttpClient()
         val url = "https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$APP_ID"
         Log.d("Debug", "getCurrentWeather : $url")
@@ -50,20 +54,34 @@ class MyWorker(context: Context, workerParams: WorkerParameters) : Worker(contex
                 val result = String(responseBody!!)
                 Log.d("Debug", result)
                 try {
-                    val resOb = JSONObject(result)
-                    val currentWeather: String =
-                        resOb.getJSONArray("weather").getJSONObject(0).getString("main")
-                    val description =
-                        resOb.getJSONArray("weather").getJSONObject(0).getString("description")
-                    val tempKelvin = resOb.getJSONObject("main").getDouble("temp")
+//                    val resOb = JSONObject(result)
+//                    val currentWeather: String =
+//                        resOb.getJSONArray("weather").getJSONObject(0).getString("main")
+//                    val description =
+//                        resOb.getJSONArray("weather").getJSONObject(0).getString("description")
+//                    val tempKelvin = resOb.getJSONObject("main").getDouble("temp")
 
-                    val tempCelsius = tempKelvin - 273
-                    val temperature = DecimalFormat("##.#").format(tempCelsius)
+                    val moshi = Moshi.Builder()
+                        .addLast(KotlinJsonAdapterFactory())
+                        .build()
+//                        .adapter(Response::class.java)
 
-                    val title = "Cuaca hari ini di $city"
-                    val message = "$currentWeather, $description with $temperature ℃"
+                    val jsonAdapter = moshi.adapter(Response::class.java)
+                    val response = jsonAdapter.fromJson(result)
 
-                    showNotification(title, message)
+                    response?.let {
+                        val currentWeather = it.weatherList[0].main
+                        val description = it.weatherList[0].description
+                        val tempKelvin = it.main.temperature
+
+                        val tempCelsius = tempKelvin - 273
+                        val temperature = DecimalFormat("##.#").format(tempCelsius)
+
+                        val title = "Cuaca hari ini di $city"
+                        val message = "$currentWeather, $description with $temperature ℃"
+
+                        showNotification(title, message)
+                    }
                     Log.d("Debug", "onSuccess : Selesai...")
                     resultStatus = Result.success()
                 } catch (e: Exception) {
